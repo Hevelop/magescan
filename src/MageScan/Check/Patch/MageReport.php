@@ -32,8 +32,8 @@ use MageScan\Request;
 class MageReport extends AbstractCheck
 {
     const RESULT_SUCCESS = 'ok';
-    const RESULT_FAIL    = 'fail';
-    const BASE_URL       = 'https://www.magereport.com/';
+    const RESULT_FAIL = 'fail';
+    const BASE_URL = 'https://www.magereport.com/';
 
     /**
      * The URL we're scanning
@@ -77,13 +77,28 @@ class MageReport extends AbstractCheck
         $results = [];
         $request = new Request(self::BASE_URL);
         $paths = $this->patches;
-        array_walk($paths, function (&$value) {
-            $value = $value . '?s=' . $this->url;
-        });
-        $responses = $request->getMany($paths);
-        foreach ($responses as $path => $response) {
-            $results[$this->getPatchName($path)] = $this->parseResponse($response);
+
+        $response = $request->get('scan/result/?s=' . $this->url);
+        $body = (string)$response->getBody();
+
+        $body = str_replace('}{', '},{', $body);
+        $body = '[' . $body . ']';
+
+        /** @var array $bodies */
+        $bodies = json_decode($body);
+
+        foreach ($bodies as $k => $body) {
+            $body = (array)$body;
+
+            foreach ($body as $check => $body) {
+
+                if (stripos($check, 'supee') !== false) {
+                    $results[$check] = $this->parseResponseBody($body);
+                }
+            }
         }
+        ksort($results);
+
         return $results;
     }
 
@@ -124,6 +139,27 @@ class MageReport extends AbstractCheck
     protected function parseResponse(Response $response)
     {
         $body = json_decode($response->getBody());
+        if (is_object($body)) {
+            switch ($body->result) {
+                case self::RESULT_SUCCESS:
+                    return Patch::PATCHED;
+                case self::RESULT_FAIL:
+                    return Patch::UNPATCHED;
+            }
+        }
+        return Patch::UNKNOWN;
+    }
+
+
+    /**
+     * Derive if patched or not based on the response
+     *
+     * @param StdClass $body
+     *
+     * @return string
+     */
+    protected function parseResponseBody($body)
+    {
         if (is_object($body)) {
             switch ($body->result) {
                 case self::RESULT_SUCCESS:
